@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap');
+
+:root {
+  font-family: 'Manrope', 'Helvetica Neue', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --app-bg: linear-gradient(180deg, #f5f6fb 0%, #eef0f8 100%);
+  --surface: #ffffff;
+  --input-bg: #f7f8fc;
+  --text-primary: #0f172a;
+  --text-muted: #6b7287;
+  --border: #e5e7ef;
+  --accent: #6a5af9;
+  --accent-faint: rgba(106, 90, 249, 0.24);
+  --accent-gradient: linear-gradient(135deg, #6a5af9 0%, #b66bff 100%);
+  --shadow-soft: 0 6px 22px rgba(15, 23, 42, 0.06);
+  --shadow-strong: 0 20px 60px rgba(15, 23, 42, 0.16);
+}
+
+:root[data-theme='dark'] {
+  --app-bg: linear-gradient(180deg, #0c111f 0%, #0b1328 100%);
+  --surface: #11192c;
+  --input-bg: #0f1726;
+  --text-primary: #e5e7f3;
+  --text-muted: #9ca3b7;
+  --border: #1f2a3f;
+  --accent: #8f7bff;
+  --accent-faint: rgba(143, 123, 255, 0.3);
+  --accent-gradient: linear-gradient(135deg, #8f7bff 0%, #c35dff 100%);
+  --shadow-soft: 0 6px 22px rgba(0, 0, 0, 0.35);
+  --shadow-strong: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--app-bg);
+}
+
+button,
+input,
+textarea {
+  font-family: inherit;
+}
