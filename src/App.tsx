@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { db } from './db'
+import { calculateTotals, getPeriodByOffset, getPeriodRange, groupShiftsByDay, minutesBetween } from './lib/calculations'
 import type { Settings, Shift, ShiftForm } from './types'
 
 const INITIAL_HOURLY_RATE = 25
+const THEME_STORAGE_KEY = 'worktracker:theme'
+const MENU_STORAGE_KEY = 'worktracker:menu-open'
 
 const initialShifts: Shift[] = [
   {
@@ -54,14 +57,6 @@ const DEFAULT_SETTINGS: Settings = {
   accountantEmail: '',
 }
 
-function minutesBetween(start: string, end: string) {
-  const [sh, sm] = start.split(':').map(Number)
-  const [eh, em] = end.split(':').map(Number)
-  const startMin = sh * 60 + sm
-  const endMin = eh * 60 + em
-  return Math.max(endMin - startMin, 0)
-}
-
 function formatDate(value: string) {
   const date = new Date(`${value}T00:00:00`)
   return new Intl.DateTimeFormat('en-AU', {
@@ -87,44 +82,7 @@ function formatDuration(minutes: number) {
   return `${hours}h ${mins}m`
 }
 
-function iso(date: Date) {
-  return date.toISOString().slice(0, 10)
-}
-
 const nowIso = () => new Date().toISOString()
-
-function getPeriodRange(settings: Settings) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  if (settings.period === 'monthly') {
-    const start = new Date(today.getFullYear(), today.getMonth(), 1)
-    const end = new Date(today.getFullYear(), today.getMonth() + 1, 0)
-    return { start: iso(start), end: iso(end) }
-  }
-
-  if (settings.period === 'weekly') {
-    const map: Record<Settings['weekStart'], number> = {
-      sunday: 0,
-      monday: 1,
-      tuesday: 2,
-      wednesday: 3,
-      thursday: 4,
-      friday: 5,
-      saturday: 6,
-    }
-    const target = map[settings.weekStart]
-    const current = today.getDay()
-    const diff = (current - target + 7) % 7
-    const start = new Date(today)
-    start.setDate(today.getDate() - diff)
-    const end = new Date(start)
-    end.setDate(start.getDate() + 6)
-    return { start: iso(start), end: iso(end) }
-  }
-
-  // Custom dates: not yet implemented, so we use full range (no filtering).
-  return null
-}
 
 type Option = {
   value: string
@@ -143,30 +101,33 @@ const WheelPicker = ({ options, value, onChange, itemHeight = 44 }: WheelPickerP
   const scrollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const viewportPadding = itemHeight
   const wheelHeight = itemHeight * 3
+  const loopedOptions = useMemo(() => [...options, ...options, ...options], [options])
+  const baseCount = options.length
+  const middleOffset = baseCount
 
   useEffect(() => {
-    const index = Math.max(
-      0,
-      options.findIndex((item) => item.value === value),
-    )
+    if (!baseCount) return
+    const index = Math.max(0, options.findIndex((item) => item.value === value))
+    const targetIndex = middleOffset + index
     if (ref.current) {
-      const target = Math.max(0, viewportPadding - itemHeight + index * itemHeight)
+      const target = Math.max(0, viewportPadding - itemHeight + targetIndex * itemHeight)
       ref.current.scrollTo({
         top: target,
         behavior: 'smooth',
       })
     }
-  }, [value, options, itemHeight, viewportPadding])
+  }, [value, options, itemHeight, viewportPadding, baseCount, middleOffset])
 
   const snapToNearest = () => {
-    if (!ref.current) return
+    if (!ref.current || !baseCount) return
     const { scrollTop } = ref.current
     const relative = scrollTop - (viewportPadding - itemHeight)
     const index = Math.round(relative / itemHeight)
-    const clamped = Math.min(options.length - 1, Math.max(0, index))
-    const target = Math.max(0, viewportPadding - itemHeight + clamped * itemHeight)
+    const normalized = ((index % baseCount) + baseCount) % baseCount
+    const targetIndex = middleOffset + normalized
+    const target = Math.max(0, viewportPadding - itemHeight + targetIndex * itemHeight)
     ref.current.scrollTo({ top: target, behavior: 'smooth' })
-    const selected = options[clamped]
+    const selected = options[normalized]
     if (selected && selected.value !== value) {
       onChange(selected.value)
     }
@@ -189,9 +150,9 @@ const WheelPicker = ({ options, value, onChange, itemHeight = 44 }: WheelPickerP
           paddingBottom: viewportPadding,
         }}
       >
-        {options.map((option) => (
+        {loopedOptions.map((option, idx) => (
           <div
-            key={option.value}
+            key={`${option.value}-${idx}`}
             className={`wheel__item ${option.value === value ? 'is-active' : ''}`}
             style={{ height: itemHeight }}
           >
@@ -205,18 +166,40 @@ const WheelPicker = ({ options, value, onChange, itemHeight = 44 }: WheelPickerP
 }
 
 function App() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const stored = localStorage.getItem(THEME_STORAGE_KEY)
+      if (stored === 'light' || stored === 'dark') return stored
+    } catch (error) {
+      console.error('Failed to read stored theme', error)
+    }
+    return 'light'
+  })
   const [shifts, setShifts] = useState<Shift[]>([])
   const [isAddOpen, setIsAddOpen] = useState(false)
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isMenuOpen, setIsMenuOpen] = useState(() => {
+    try {
+      return localStorage.getItem(MENU_STORAGE_KEY) === 'true'
+    } catch (error) {
+      console.error('Failed to read stored menu state', error)
+      return false
+    }
+  })
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [form, setForm] = useState<ShiftForm>(emptyForm)
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [settingsDraft, setSettingsDraft] = useState<Settings>(DEFAULT_SETTINGS)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [activeView, setActiveView] = useState<'home' | 'reports'>('home')
+  const [periodOffset, setPeriodOffset] = useState(0)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch (error) {
+      console.error('Failed to persist theme', error)
+    }
   }, [theme])
 
   useEffect(() => {
@@ -259,6 +242,14 @@ function App() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MENU_STORAGE_KEY, String(isMenuOpen))
+    } catch (error) {
+      console.error('Failed to persist menu preference', error)
+    }
+  }, [isMenuOpen])
 
   const todayLabel = useMemo(() => {
     const now = new Date()
@@ -359,23 +350,25 @@ function App() {
 
   const periodRange = useMemo(() => getPeriodRange(settings), [settings])
 
-  const totals = useMemo(() => {
-    const source = periodRange
-      ? shifts.filter((shift) => shift.date >= periodRange.start && shift.date <= periodRange.end)
-      : shifts
+  const totals = useMemo(
+    () => calculateTotals(shifts, periodRange),
+    [shifts, periodRange],
+  )
 
-    return source.reduce(
-      (acc, shift) => {
-        const workMinutes = minutesBetween(shift.start, shift.end) - shift.lunchMinutes
-        const safeMinutes = Math.max(workMinutes, 0)
-        const hours = safeMinutes / 60
-        acc.pay += hours * shift.hourlyRate
-        acc.durationMinutes += safeMinutes
-        return acc
-      },
-      { pay: 0, durationMinutes: 0 },
-    )
-  }, [shifts, periodRange])
+  const reportRange = useMemo(
+    () => getPeriodByOffset(settings, periodOffset),
+    [settings, periodOffset],
+  )
+
+  const reportDays = useMemo(
+    () => groupShiftsByDay(shifts, reportRange),
+    [shifts, reportRange],
+  )
+
+  const reportTotals = useMemo(
+    () => calculateTotals(shifts, reportRange),
+    [shifts, reportRange],
+  )
 
   const totalPay = totals.pay
   const totalDurationMinutes = totals.durationMinutes
@@ -384,6 +377,13 @@ function App() {
     if (!periodRange) return 'All time'
     return `${formatDate(periodRange.start)} — ${formatDate(periodRange.end)}`
   }, [periodRange])
+
+  const reportPeriodLabel = useMemo(() => {
+    if (!reportRange) return 'All time'
+    return `${formatDate(reportRange.start)} — ${formatDate(reportRange.end)}`
+  }, [reportRange])
+
+  const canNavigateReports = settings.period !== 'custom'
 
   const openCreate = () => {
     setEditingId(null)
@@ -414,6 +414,27 @@ function App() {
     setSettingsDraft(settings)
     setIsSettingsOpen(true)
     setIsMenuOpen(false)
+  }
+
+  const openReports = () => {
+    setActiveView('reports')
+    setIsMenuOpen(false)
+    setPeriodOffset(0)
+  }
+
+  const goHome = () => {
+    setActiveView('home')
+    setIsMenuOpen(false)
+  }
+
+  const goPrevPeriod = () => {
+    if (!canNavigateReports) return
+    setPeriodOffset((prev) => prev - 1)
+  }
+
+  const goNextPeriod = () => {
+    if (!canNavigateReports) return
+    setPeriodOffset((prev) => prev + 1)
   }
 
   const closeSettings = () => {
@@ -489,6 +510,7 @@ function App() {
 
   const saveSettings = async () => {
     setSettings(settingsDraft)
+    setPeriodOffset(0)
     try {
       await db.settings.put({ key: 'main', ...settingsDraft, updatedAt: nowIso() })
     } catch (error) {
@@ -529,6 +551,12 @@ function App() {
             <div className="menu-title">User</div>
             <div className="menu-sub">user@example.com</div>
           </div>
+          <button className="menu-item action" onClick={goHome}>
+            Dashboard
+          </button>
+          <button className="menu-item action" onClick={openReports}>
+            Reports
+          </button>
           <button className="menu-item action" onClick={openSettings}>
             Settings
           </button>
@@ -536,64 +564,104 @@ function App() {
       )}
 
       <main className="content">
-        <section className="overview">
-          <div className="overview-label">Total payout</div>
-          <div className="overview-period">{periodLabel}</div>
-          <div className="overview-value">${money(totalPay)} AUD</div>
-          <div className="overview-sub">Duration: {formatDuration(totalDurationMinutes)}</div>
-          <div className="overview-sub">Rate: {settings.hourlyRate} AUD/hr</div>
-        </section>
+        {activeView === 'home' ? (
+          <>
+            <section className="overview">
+              <div className="overview-label">Total payout</div>
+              <div className="overview-period">{periodLabel}</div>
+              <div className="overview-value">${money(totalPay)} AUD</div>
+              <div className="overview-sub">Duration: {formatDuration(totalDurationMinutes)}</div>
+              <div className="overview-sub">Rate: {settings.hourlyRate} AUD/hr</div>
+            </section>
 
-        <section className="shift-list">
-          {sortedShifts.map((shift) => {
-            const workedMinutes = minutesBetween(shift.start, shift.end) - shift.lunchMinutes
-            const hours = Math.max(workedMinutes, 0) / 60
-            const salary = hours * shift.hourlyRate
-            return (
-              <article key={shift.id} className="shift-card">
-                <div className="shift-card__header">
-                  <div className="shift-date">{formatDate(shift.date)}</div>
-                  <div className="shift-actions">
-                    <button className="ghost-button danger" onClick={() => handleDelete(shift.id)}>
-                      Delete
-                    </button>
-                    <button className="ghost-button" onClick={() => openEdit(shift)}>
-                      Edit
-                    </button>
+            <section className="shift-list">
+              {sortedShifts.map((shift) => {
+                const workedMinutes = minutesBetween(shift.start, shift.end) - shift.lunchMinutes
+                const hours = Math.max(workedMinutes, 0) / 60
+                const salary = hours * shift.hourlyRate
+                return (
+                  <article key={shift.id} className="shift-card">
+                    <div className="shift-card__header">
+                      <div className="shift-date">{formatDate(shift.date)}</div>
+                      <div className="shift-actions">
+                        <button className="ghost-button danger" onClick={() => handleDelete(shift.id)}>
+                          Delete
+                        </button>
+                        <button className="ghost-button" onClick={() => openEdit(shift)}>
+                          Edit
+                        </button>
+                      </div>
+                    </div>
+                    <div className="shift-grid">
+                      <div>
+                        <div className="label">Start</div>
+                        <div className="value">{shift.start}</div>
+                      </div>
+                      <div>
+                        <div className="label">End</div>
+                        <div className="value">{shift.end}</div>
+                      </div>
+                      <div>
+                        <div className="label">Lunch</div>
+                        <div className="value">{shift.lunchMinutes} min</div>
+                      </div>
+                      <div>
+                        <div className="label">Duration</div>
+                        <div className="value">{formatDuration(workedMinutes)}</div>
+                      </div>
+                      <div>
+                        <div className="label">Pay</div>
+                        <div className="value accent">${money(salary)} AUD</div>
+                      </div>
+                    </div>
+                    {shift.comment && <div className="comment">“{shift.comment}”</div>}
+                  </article>
+                )
+              })}
+            </section>
+          </>
+        ) : (
+          <section className="reports-card">
+            <div className="reports-header">
+              <button className="nav-btn" onClick={goPrevPeriod} disabled={!canNavigateReports}>
+                ‹
+              </button>
+              <div className="reports-range">{reportPeriodLabel}</div>
+              <button className="nav-btn" onClick={goNextPeriod} disabled={!canNavigateReports}>
+                ›
+              </button>
+            </div>
+
+            <div className="reports-list">
+              {reportDays.map((day) => (
+                <div key={day.date} className="report-row">
+                  <div className="report-date">{formatDate(day.date)}</div>
+                  <div className="report-meta">
+                    <div className="value">{formatDuration(day.durationMinutes)}</div>
+                  </div>
+                  <div className="report-meta">
+                    <div className="value accent">${money(day.pay)}</div>
                   </div>
                 </div>
-                <div className="shift-grid">
-                  <div>
-                    <div className="label">Start</div>
-                    <div className="value">{shift.start}</div>
-                  </div>
-                  <div>
-                    <div className="label">End</div>
-                    <div className="value">{shift.end}</div>
-                  </div>
-                  <div>
-                    <div className="label">Lunch</div>
-                    <div className="value">{shift.lunchMinutes} min</div>
-                  </div>
-                  <div>
-                    <div className="label">Duration</div>
-                    <div className="value">{formatDuration(workedMinutes)}</div>
-                  </div>
-                  <div>
-                    <div className="label">Pay</div>
-                    <div className="value accent">${money(salary)} AUD</div>
-                  </div>
-                </div>
-                {shift.comment && <div className="comment">“{shift.comment}”</div>}
-              </article>
-            )
-          })}
-        </section>
+              ))}
+              {reportDays.length === 0 && (
+                <div className="report-row empty">No shifts in this period</div>
+              )}
+            </div>
+
+            <div className="reports-total">
+              <div className="label">Total payout</div>
+              <div className="value accent">${money(reportTotals.pay)}</div>
+            </div>
+          </section>
+        )}
       </main>
 
-      <button className="floating-btn" onClick={openCreate}>
-        Add work time
-      </button>
+      {activeView === 'home' && (
+        <button className="floating-btn" onClick={openCreate}>
+          Add work time
+        </button>
+      )}
 
       {isAddOpen && (
         <div className="modal-backdrop" onClick={closeModal}>
