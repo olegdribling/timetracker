@@ -381,19 +381,21 @@
   opacity: 0.12;
 }
 
+
 .wheel__highlight {
   position: absolute;
   left: 8px;
   right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  border-radius: 10px;
+  top: 50%;  
+  transform: translateY(-50%);  
+  border-radius: 10px;  
   /*
-  background: rgba(255, 255, 255, 0.6);
-  mix-blend-mode: screen;
+  background: rgba(255, 255, 255, 0.9);  
+  mix-blend-mode: normal;
   */
-  pointer-events: none;
+  pointer-events: none;  
   box-shadow: 0 0 0 1px rgba(100, 100, 100, 0.45);
+  
 }
 
 .segment {
@@ -466,6 +468,88 @@
   font-size: 16px;
   cursor: pointer;
   box-shadow: 0 12px 30px rgba(106, 90, 249, 0.28);
+}
+
+.reports-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reports-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reports-range {
+  font-weight: 700;
+  text-align: center;
+}
+
+.nav-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.nav-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.report-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 0.8fr;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+}
+
+.report-row.empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.report-date {
+  font-weight: 700;
+}
+
+.report-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reports-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-faint);
+  border: 1px solid var(--border);
 }
 
 @media (max-width: 520px) {
