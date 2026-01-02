@@ -10,6 +10,7 @@ const baseSettings: Settings = {
   accountantEmail: '',
 }
 
+
 describe('minutesBetween', () => {
   it('counts same-day durations', () => {
     expect(minutesBetween('09:00', '17:00')).toBe(480)
