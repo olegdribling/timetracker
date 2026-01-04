@@ -120,11 +120,11 @@ export async function generateInvoicePdf(params: {
   y -= line * 4
   drawText('Bill to:', margin, y, { bold: true })
   y -= line * 1.2
-  drawText('Client name', margin, y, { bold: true })
+  drawText('Outodoor Blinds Group Pty Ltd', margin, y, { bold: true })
   y -= line
-  drawText('Client company / address', margin, y)
+  drawText('Unit 37, 17-21 Henderson St. Turrella', margin, y)
   y -= line
-  drawText('City / Country', margin, y)
+  drawText('NSW 2205 Australia (AU)', margin, y)
 
   // Table
   y -= line * 2
@@ -187,7 +187,7 @@ export async function generateInvoicePdf(params: {
   drawText(`ACCOUNT:   ${profile.accountNumber || '—'}`, margin, afterTableY)
 
   const pdfBytes = await pdfDoc.save()
-  const arrayBuffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength)
+  const arrayBuffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength) as ArrayBuffer
   const blob = new Blob([arrayBuffer], { type: 'application/pdf' })
   saveAs(blob, `Invoice-${invoiceNumber}-${period.start}-to-${period.end}.pdf`)
 }
