@@ -294,10 +294,34 @@
   box-shadow: var(--shadow-strong);
 }
 
+.modal.wide {
+  width: min(620px, 100%);
+}
+
+.actions-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.actions-row.center {
+  justify-content: center;
+}
+.actions-row.center .primary-btn {
+  width: min(320px, 100%);
+}
+
 .modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.modal-header.end {
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .modal-title {
@@ -550,6 +574,21 @@
   border-radius: 12px;
   background: var(--accent-faint);
   border: 1px solid var(--border);
+}
+
+.reports-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reports-actions .primary-btn {
+  margin: 0;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 @media (max-width: 520px) {
