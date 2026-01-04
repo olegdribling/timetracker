@@ -57,7 +57,7 @@ const DEFAULT_SETTINGS: Settings = {
   weekStart: 'monday',
   hourlyRate: INITIAL_HOURLY_RATE,
   userEmail: '',
-  accountantEmail: '',
+  accountantEmail: 'sales@outdoorblindsgroup.com.au',
 }
 
 const DEFAULT_INVOICE_PROFILE: InvoiceProfile = {
