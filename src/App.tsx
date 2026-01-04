@@ -618,7 +618,10 @@ function App() {
         gst: 0,
         balanceDue: invoiceForm.total,
       })
-      const nextNumber = Math.max(invoiceNumber + 1, invoiceProfile.nextInvoiceNumber + 1)
+      const nextNumber =
+        invoiceNumber > invoiceProfile.nextInvoiceNumber
+          ? invoiceNumber + 1
+          : invoiceProfile.nextInvoiceNumber + 1
       const updated: InvoiceProfile = { ...invoiceProfile, nextInvoiceNumber: nextNumber }
       setInvoiceProfile(updated)
       setInvoiceDraft(updated)
