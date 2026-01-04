@@ -22,6 +22,20 @@ class WorkTrackerDB extends Dexie {
       settings: 'key',
       invoiceProfile: 'key',
     })
+
+    this.version(3)
+      .stores({
+        shifts: 'id, date',
+        settings: 'key',
+        invoiceProfile: 'key',
+      })
+      .upgrade((tx) => {
+        return tx.table('invoiceProfile').toCollection().modify((row: InvoiceProfileRow & Partial<InvoiceProfile>) => {
+          if (row.chargeGst === undefined) {
+            row.chargeGst = false
+          }
+        })
+      })
   }
 }
 
