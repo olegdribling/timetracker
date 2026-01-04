@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { db } from './db'
+import type { InvoiceProfileRow, SettingsRow, ShiftRow } from './db'
 import { calculateTotals, getPeriodByOffset, getPeriodRange, groupShiftsByDay, minutesBetween } from './lib/calculations'
 import { generateInvoicePdf } from './lib/invoice'
 import type { InvoiceProfile, Settings, Shift, ShiftForm } from './types'
+import { saveAs } from 'file-saver'
 
 const INITIAL_HOURLY_RATE = 25
 const THEME_STORAGE_KEY = 'worktracker:theme'
@@ -67,6 +69,7 @@ const DEFAULT_INVOICE_PROFILE: InvoiceProfile = {
   bsb: '',
   accountNumber: '',
   nextInvoiceNumber: 1,
+  chargeGst: false,
 }
 
 function formatDate(value: string) {
@@ -99,6 +102,16 @@ const nowIso = () => new Date().toISOString()
 type Option = {
   value: string
   label: string
+}
+
+type SettingsRowImport = Settings & { key?: string; updatedAt?: string }
+type InvoiceRowImport = InvoiceProfile & { key?: string; updatedAt?: string }
+type BackupPayload = {
+  version: number
+  exportedAt?: string
+  shifts: (Shift & { updatedAt?: string })[]
+  settings: SettingsRowImport[]
+  invoiceProfile: InvoiceRowImport[]
 }
 
 type WheelPickerProps = {
@@ -214,6 +227,7 @@ function App() {
     durationMinutes: 0,
     total: 0,
   })
+  const importInputRef = useRef<HTMLInputElement | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<'home' | 'reports'>('home')
   const [periodOffset, setPeriodOffset] = useState(0)
@@ -249,8 +263,8 @@ function App() {
         }
 
         if (invoiceRow) {
-          setInvoiceProfile(invoiceRow)
-          setInvoiceDraft(invoiceRow)
+          setInvoiceProfile({ ...invoiceRow, chargeGst: invoiceRow.chargeGst ?? false })
+          setInvoiceDraft({ ...invoiceRow, chargeGst: invoiceRow.chargeGst ?? false })
         } else {
           setInvoiceProfile(DEFAULT_INVOICE_PROFILE)
           setInvoiceDraft(DEFAULT_INVOICE_PROFILE)
@@ -457,6 +471,84 @@ function App() {
     setPeriodOffset(0)
   }
 
+  const exportData = async () => {
+    try {
+      const payload = {
+        version: 1,
+        exportedAt: nowIso(),
+        shifts: await db.shifts.toArray(),
+        settings: await db.settings.toArray(),
+        invoiceProfile: await db.invoiceProfile.toArray(),
+      }
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const dateTag = payload.exportedAt.slice(0, 10)
+      saveAs(blob, `worktracker-backup-${dateTag}.json`)
+    } catch (error) {
+      console.error('Failed to export data', error)
+      alert('Failed to export data.')
+    }
+  }
+
+  const triggerImport = () => {
+    importInputRef.current?.click()
+  }
+
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    const confirm = window.confirm('Import will replace current data. Continue?')
+    if (!confirm) return
+
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text) as BackupPayload
+      if (!parsed || !Array.isArray(parsed.shifts) || !Array.isArray(parsed.settings)) {
+        throw new Error('Invalid backup format')
+      }
+      const shiftsData: ShiftRow[] = parsed.shifts.map((s) => ({
+        ...s,
+        updatedAt: s.updatedAt ?? nowIso(),
+      }))
+      const settingsData: SettingsRow[] = parsed.settings.map((s) => ({
+        ...s,
+        key: 'main',
+        updatedAt: s.updatedAt ?? nowIso(),
+      }))
+      const invoiceData: InvoiceProfileRow[] = Array.isArray(parsed.invoiceProfile)
+        ? parsed.invoiceProfile.map((s) => ({
+            ...s,
+            key: 'main',
+            updatedAt: s.updatedAt ?? nowIso(),
+            chargeGst: s.chargeGst ?? false,
+          }))
+        : []
+
+      await db.transaction('rw', db.shifts, db.settings, db.invoiceProfile, async () => {
+        await db.shifts.clear()
+        await db.settings.clear()
+        await db.invoiceProfile.clear()
+        if (shiftsData.length) await db.shifts.bulkPut(shiftsData)
+        if (settingsData.length) await db.settings.bulkPut(settingsData)
+        if (invoiceData.length) await db.invoiceProfile.bulkPut(invoiceData)
+      })
+
+      setShifts(shiftsData)
+      const mainSettings = settingsData.find((s) => s.key === 'main') ?? DEFAULT_SETTINGS
+      setSettings(mainSettings)
+      setSettingsDraft(mainSettings)
+      const mainInvoice = invoiceData.find((s) => s.key === 'main') ?? DEFAULT_INVOICE_PROFILE
+      setInvoiceProfile(mainInvoice)
+      setInvoiceDraft(mainInvoice)
+      setIsMenuOpen(false)
+      alert('Import completed.')
+    } catch (error) {
+      console.error('Failed to import data', error)
+      alert('Failed to import data.')
+    }
+  }
+
   const goHome = () => {
     setActiveView('home')
     setIsMenuOpen(false)
@@ -606,6 +698,9 @@ function App() {
     if (!reportRange) return
     const lineItem = invoiceProfile.speciality || 'Service'
     const invoiceNumber = invoiceForm.invoiceNumber
+    const gst = invoiceProfile.chargeGst ? invoiceForm.total * 0.1 : 0
+    const netSubtotal = invoiceForm.total - gst
+    const balanceDue = invoiceForm.total
     try {
       await generateInvoicePdf({
         profile: invoiceProfile,
@@ -614,9 +709,9 @@ function App() {
         itemLabel: lineItem,
         unitPrice: invoiceForm.rate,
         quantityMinutes: invoiceForm.durationMinutes,
-        subtotal: invoiceForm.total,
-        gst: 0,
-        balanceDue: invoiceForm.total,
+        subtotal: netSubtotal,
+        gst,
+        balanceDue,
       })
       const nextNumber =
         invoiceNumber > invoiceProfile.nextInvoiceNumber
@@ -652,6 +747,13 @@ function App() {
 
   return (
     <div className="app-shell">
+      <input
+        type="file"
+        accept="application/json"
+        ref={importInputRef}
+        style={{ display: 'none' }}
+        onChange={handleImportFile}
+      />
       <header className="top-bar">
         <div className="date-block">
           <div className="today-label">Today</div>
@@ -690,6 +792,12 @@ function App() {
           </button>
           <button className="menu-item action" onClick={openInvoiceModal}>
             Invoice details
+          </button>
+          <button className="menu-item action" onClick={exportData}>
+            Export data
+          </button>
+          <button className="menu-item action" onClick={triggerImport}>
+            Import data
           </button>
           <button className="menu-item action" onClick={openSettings}>
             Settings
@@ -1194,6 +1302,15 @@ function App() {
                       nextInvoiceNumber: Math.max(1, Number(e.target.value) || 1),
                     }))
                   }
+                />
+              </label>
+
+              <label className="field checkbox-inline">
+                <span className="label">Include GST (10%)</span>
+                <input
+                  type="checkbox"
+                  checked={invoiceDraft.chargeGst}
+                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, chargeGst: e.target.checked }))}
                 />
               </label>
             </div>
