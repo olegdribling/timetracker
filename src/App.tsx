@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { db } from './db'
 import { calculateTotals, getPeriodByOffset, getPeriodRange, groupShiftsByDay, minutesBetween } from './lib/calculations'
-import type { Settings, Shift, ShiftForm } from './types'
+import { generateInvoicePdf } from './lib/invoice'
+import type { InvoiceProfile, Settings, Shift, ShiftForm } from './types'
 
 const INITIAL_HOURLY_RATE = 25
 const THEME_STORAGE_KEY = 'worktracker:theme'
@@ -55,6 +56,17 @@ const DEFAULT_SETTINGS: Settings = {
   hourlyRate: INITIAL_HOURLY_RATE,
   userEmail: '',
   accountantEmail: '',
+}
+
+const DEFAULT_INVOICE_PROFILE: InvoiceProfile = {
+  fullName: '',
+  address: '',
+  abn: '',
+  speciality: '',
+  accountBankName: '',
+  bsb: '',
+  accountNumber: '',
+  nextInvoiceNumber: 1,
 }
 
 function formatDate(value: string) {
@@ -186,9 +198,22 @@ function App() {
     }
   })
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
+  const [isInvoiceScreenOpen, setIsInvoiceScreenOpen] = useState(false)
+  const [isInvoiceEditing, setIsInvoiceEditing] = useState(false)
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false)
+  const [lastInvoiceNumber, setLastInvoiceNumber] = useState<number | null>(null)
   const [form, setForm] = useState<ShiftForm>(emptyForm)
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [settingsDraft, setSettingsDraft] = useState<Settings>(DEFAULT_SETTINGS)
+  const [invoiceProfile, setInvoiceProfile] = useState<InvoiceProfile>(DEFAULT_INVOICE_PROFILE)
+  const [invoiceDraft, setInvoiceDraft] = useState<InvoiceProfile>(DEFAULT_INVOICE_PROFILE)
+  const [invoiceForm, setInvoiceForm] = useState({
+    invoiceNumber: 1,
+    rate: INITIAL_HOURLY_RATE,
+    durationMinutes: 0,
+    total: 0,
+  })
   const [editingId, setEditingId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<'home' | 'reports'>('home')
   const [periodOffset, setPeriodOffset] = useState(0)
@@ -206,9 +231,10 @@ function App() {
     let cancelled = false
     ;(async () => {
       try {
-        const [shiftRows, settingsRow] = await Promise.all([
+        const [shiftRows, settingsRow, invoiceRow] = await Promise.all([
           db.shifts.toArray(),
           db.settings.get('main'),
+          db.invoiceProfile.get('main').catch(() => null),
         ])
 
         if (cancelled) return
@@ -220,6 +246,15 @@ function App() {
           setSettings(DEFAULT_SETTINGS)
           setSettingsDraft(DEFAULT_SETTINGS)
           await db.settings.put({ key: 'main', ...DEFAULT_SETTINGS, updatedAt: nowIso() })
+        }
+
+        if (invoiceRow) {
+          setInvoiceProfile(invoiceRow)
+          setInvoiceDraft(invoiceRow)
+        } else {
+          setInvoiceProfile(DEFAULT_INVOICE_PROFILE)
+          setInvoiceDraft(DEFAULT_INVOICE_PROFILE)
+          await db.invoiceProfile.put({ key: 'main', ...DEFAULT_INVOICE_PROFILE, updatedAt: nowIso() })
         }
 
         if (!shiftRows.length) {
@@ -519,6 +554,99 @@ function App() {
     closeSettings()
   }
 
+  const openInvoiceModal = () => {
+    setInvoiceDraft(invoiceProfile)
+    setIsInvoiceModalOpen(true)
+    setIsMenuOpen(false)
+  }
+
+  const closeInvoiceModal = () => {
+    setIsInvoiceModalOpen(false)
+  }
+
+  const saveInvoiceProfile = async () => {
+    setInvoiceProfile(invoiceDraft)
+    try {
+      await db.invoiceProfile.put({ key: 'main', ...invoiceDraft, updatedAt: nowIso() })
+    } catch (error) {
+      console.error('Failed to save invoice profile', error)
+    }
+    closeInvoiceModal()
+  }
+
+  const hasInvoiceCoreFields = invoiceProfile.fullName.trim() !== '' && invoiceProfile.accountNumber.trim() !== ''
+
+  const openInvoiceScreen = () => {
+    if (!reportRange) {
+      alert('Select a reporting period first.')
+      return
+    }
+    if (!hasInvoiceCoreFields) {
+      alert('Fill invoice details first (Full Name and Account number at minimum).')
+      return
+    }
+    setInvoiceForm({
+      invoiceNumber: invoiceProfile.nextInvoiceNumber,
+      rate: settings.hourlyRate,
+      durationMinutes: reportTotals.durationMinutes,
+      total: reportTotals.pay,
+    })
+    setIsInvoiceEditing(false)
+    setShowEmailPrompt(false)
+    setIsInvoiceScreenOpen(true)
+  }
+
+  const closeInvoiceScreen = () => {
+    setIsInvoiceScreenOpen(false)
+    setIsInvoiceEditing(false)
+    setShowEmailPrompt(false)
+  }
+
+  const saveInvoicePdf = async () => {
+    if (!reportRange) return
+    const lineItem = invoiceProfile.speciality || 'Service'
+    const invoiceNumber = invoiceForm.invoiceNumber
+    try {
+      await generateInvoicePdf({
+        profile: invoiceProfile,
+        period: reportRange,
+        invoiceNumber,
+        itemLabel: lineItem,
+        unitPrice: invoiceForm.rate,
+        quantityMinutes: invoiceForm.durationMinutes,
+        subtotal: invoiceForm.total,
+        gst: 0,
+        balanceDue: invoiceForm.total,
+      })
+      const nextNumber = Math.max(invoiceNumber + 1, invoiceProfile.nextInvoiceNumber + 1)
+      const updated: InvoiceProfile = { ...invoiceProfile, nextInvoiceNumber: nextNumber }
+      setInvoiceProfile(updated)
+      setInvoiceDraft(updated)
+      await db.invoiceProfile.put({ key: 'main', ...updated, updatedAt: nowIso() })
+      setLastInvoiceNumber(invoiceNumber)
+      closeInvoiceScreen()
+      setShowEmailPrompt(true)
+    } catch (error) {
+      console.error('Failed to generate invoice', error)
+      alert('Failed to generate invoice. See console for details.')
+    }
+  }
+
+  const openEmailDraft = () => {
+    if (!reportRange) {
+      alert('Select a reporting period first.')
+      return
+    }
+    if (!settings.accountantEmail) {
+      alert('Fill accountant email in Settings first.')
+      return
+    }
+    const invNumber = lastInvoiceNumber ?? invoiceForm.invoiceNumber
+    const subject = `Invoice #${invNumber} - ${invoiceProfile.fullName || 'Invoice'}`
+    const mailto = `mailto:${encodeURIComponent(settings.accountantEmail)}?subject=${encodeURIComponent(subject)}`
+    window.location.href = mailto
+  }
+
   return (
     <div className="app-shell">
       <header className="top-bar">
@@ -557,9 +685,111 @@ function App() {
           <button className="menu-item action" onClick={openReports}>
             Reports
           </button>
+          <button className="menu-item action" onClick={openInvoiceModal}>
+            Invoice details
+          </button>
           <button className="menu-item action" onClick={openSettings}>
             Settings
           </button>
+        </div>
+      )}
+
+      {isInvoiceScreenOpen && (
+        <div className="modal-backdrop" onClick={closeInvoiceScreen}>
+          <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header end">
+              <button className="ghost-button" onClick={closeInvoiceScreen}>
+                Close
+              </button>
+              <button
+                className="ghost-button"
+                onClick={() => setIsInvoiceEditing((prev) => !prev)}
+              >
+                {isInvoiceEditing ? 'Lock' : 'Edit'}
+              </button>
+            </div>
+
+            <div className="form-grid">
+              <div className="field">
+                <span className="label">Invoice number</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={invoiceForm.invoiceNumber}
+                  disabled={!isInvoiceEditing}
+                  onChange={(e) =>
+                    setInvoiceForm((prev) => ({ ...prev, invoiceNumber: Math.max(1, Number(e.target.value) || 1) }))
+                  }
+                />
+              </div>
+
+              <div className="double">
+                <label className="field">
+                  <span className="label">Total duration</span>
+                  <input
+                    type="text"
+                    value={`${Math.floor(invoiceForm.durationMinutes / 60)}h ${invoiceForm.durationMinutes % 60}m`}
+                    disabled
+                  />
+                </label>
+                <label className="field">
+                  <span className="label">Hourly rate</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={invoiceForm.rate}
+                    disabled={!isInvoiceEditing}
+                    onChange={(e) =>
+                      setInvoiceForm((prev) => ({ ...prev, rate: Number(e.target.value) || 0 }))
+                    }
+                  />
+                </label>
+              </div>
+
+              <label className="field">
+                <span className="label">Total amount</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={invoiceForm.total}
+                  disabled={!isInvoiceEditing}
+                  onChange={(e) =>
+                    setInvoiceForm((prev) => ({ ...prev, total: Number(e.target.value) || 0 }))
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="actions-row center">
+              <button className="primary-btn" onClick={saveInvoicePdf}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEmailPrompt && (
+        <div className="modal-backdrop" onClick={() => { setShowEmailPrompt(false); setActiveView('home') }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Send invoice</div>
+            </div>
+            <div className="actions-row">
+              <button className="ghost-button" onClick={openEmailDraft}>
+                Open email draft
+              </button>
+              <button
+                className="primary-btn"
+                onClick={() => {
+                  setShowEmailPrompt(false)
+                  setActiveView('home')
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -652,6 +882,19 @@ function App() {
             <div className="reports-total">
               <div className="label">Total payout</div>
               <div className="value accent">${money(reportTotals.pay)}</div>
+            </div>
+
+            <div className="reports-actions">
+              {!hasInvoiceCoreFields && (
+                <div className="hint">Fill invoice details to enable invoicing.</div>
+              )}
+              <button
+                className="primary-btn"
+                onClick={openInvoiceScreen}
+                disabled={!hasInvoiceCoreFields || reportDays.length === 0}
+              >
+                Create invoice
+              </button>
             </div>
           </section>
         )}
@@ -856,6 +1099,103 @@ function App() {
             </div>
 
             <button className="primary-btn" onClick={saveSettings}>
+              Save
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isInvoiceModalOpen && (
+        <div className="modal-backdrop" onClick={closeInvoiceModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <button className="ghost-button" onClick={closeInvoiceModal}>
+                Close
+              </button>
+              <div className="modal-title">Invoice details</div>
+            </div>
+
+            <div className="form-grid">
+              <label className="field">
+                <span className="label">Full Name</span>
+                <input
+                  type="text"
+                  value={invoiceDraft.fullName}
+                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, fullName: e.target.value }))}
+                />
+              </label>
+
+              <label className="field">
+                <span className="label">Address</span>
+                <input
+                  type="text"
+                  value={invoiceDraft.address}
+                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, address: e.target.value }))}
+                />
+              </label>
+
+              <label className="field">
+                <span className="label">ABN</span>
+                <input
+                  type="text"
+                  value={invoiceDraft.abn}
+                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, abn: e.target.value }))}
+                />
+              </label>
+
+              <label className="field">
+                <span className="label">Speciality</span>
+                <input
+                  type="text"
+                  value={invoiceDraft.speciality}
+                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, speciality: e.target.value }))}
+                />
+              </label>
+
+              <label className="field">
+                <span className="label">Account Bank Name</span>
+                <input
+                  type="text"
+                  value={invoiceDraft.accountBankName}
+                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, accountBankName: e.target.value }))}
+                />
+              </label>
+
+              <label className="field">
+                <span className="label">BSB</span>
+                <input
+                  type="text"
+                  value={invoiceDraft.bsb}
+                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, bsb: e.target.value }))}
+                />
+              </label>
+
+              <label className="field">
+                <span className="label">Account number</span>
+                <input
+                  type="text"
+                  value={invoiceDraft.accountNumber}
+                  onChange={(e) => setInvoiceDraft((prev) => ({ ...prev, accountNumber: e.target.value }))}
+                />
+              </label>
+
+              <label className="field">
+                <span className="label">Next invoice number</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={invoiceDraft.nextInvoiceNumber}
+                  onChange={(e) =>
+                    setInvoiceDraft((prev) => ({
+                      ...prev,
+                      nextInvoiceNumber: Math.max(1, Number(e.target.value) || 1),
+                    }))
+                  }
+                />
+              </label>
+            </div>
+
+            <button className="primary-btn" onClick={saveInvoiceProfile}>
               Save
             </button>
           </div>
