@@ -11,35 +11,6 @@ const INITIAL_HOURLY_RATE = 25
 const THEME_STORAGE_KEY = 'worktracker:theme'
 const MENU_STORAGE_KEY = 'worktracker:menu-open'
 
-const initialShifts: Shift[] = [
-  {
-    id: '1',
-    date: '2025-07-21',
-    start: '09:00',
-    end: '17:30',
-    lunchMinutes: 60,
-    comment: 'Смена в офисе',
-    hourlyRate: INITIAL_HOURLY_RATE,
-  },
-  {
-    id: '2',
-    date: '2025-07-20',
-    start: '10:00',
-    end: '18:15',
-    lunchMinutes: 45,
-    hourlyRate: INITIAL_HOURLY_RATE,
-  },
-  {
-    id: '3',
-    date: '2025-07-19',
-    start: '08:30',
-    end: '16:00',
-    lunchMinutes: 30,
-    comment: 'Удалённо',
-    hourlyRate: INITIAL_HOURLY_RATE,
-  },
-]
-
 const emptyForm = (): ShiftForm => {
   const today = new Date()
   const date = today.toISOString().slice(0, 10)
@@ -271,17 +242,7 @@ function App() {
           await db.invoiceProfile.put({ key: 'main', ...DEFAULT_INVOICE_PROFILE, updatedAt: nowIso() })
         }
 
-        if (!shiftRows.length) {
-          setShifts(initialShifts)
-          await db.shifts.bulkPut(
-            initialShifts.map((shift) => ({
-              ...shift,
-              updatedAt: nowIso(),
-            })),
-          )
-        } else {
-          setShifts(shiftRows)
-        }
+        setShifts(shiftRows)
       } catch (error) {
         console.error('Failed to load data', error)
       }
