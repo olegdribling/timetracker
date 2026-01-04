@@ -23,3 +23,14 @@ export type Settings = {
   userEmail: string
   accountantEmail: string
 }
+
+export type InvoiceProfile = {
+  fullName: string
+  address: string
+  abn: string
+  speciality: string
+  accountBankName: string
+  bsb: string
+  accountNumber: string
+  nextInvoiceNumber: number
+}
