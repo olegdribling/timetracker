@@ -33,4 +33,5 @@ export type InvoiceProfile = {
   bsb: string
   accountNumber: string
   nextInvoiceNumber: number
+  chargeGst: boolean
 }
