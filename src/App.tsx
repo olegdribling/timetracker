@@ -782,7 +782,7 @@ function App() {
         <div className="menu-sheet">
           <div className="menu-item">
             <div className="menu-title">User</div>
-            <div className="menu-sub">user@example.com</div>
+            <div className="menu-sub">Outdoorblinds Australia</div>
           </div>
           <button className="menu-item action" onClick={goHome}>
             Dashboard
