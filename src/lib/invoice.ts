@@ -120,7 +120,7 @@ export async function generateInvoicePdf(params: {
   y -= line * 4
   drawText('Bill to:', margin, y, { bold: true })
   y -= line * 1.2
-  drawText('Outodoor Blinds Group Pty Ltd', margin, y, { bold: true })
+  drawText('Outdoor Blinds Group Pty Ltd', margin, y, { bold: true })
   y -= line
   drawText('Unit 37, 17-21 Henderson St. Turrella', margin, y)
   y -= line
