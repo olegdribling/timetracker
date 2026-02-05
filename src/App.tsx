@@ -70,6 +70,13 @@ function formatDuration(minutes: number) {
 
 const nowIso = () => new Date().toISOString()
 
+const parseDecimal = (raw: string) => {
+  const normalized = raw.replace(',', '.').trim()
+  if (normalized === '') return null
+  const num = Number(normalized)
+  return Number.isFinite(num) ? num : null
+}
+
 type Option = {
   value: string
   label: string
@@ -190,6 +197,7 @@ function App() {
   const [form, setForm] = useState<ShiftForm>(emptyForm)
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [settingsDraft, setSettingsDraft] = useState<Settings>(DEFAULT_SETTINGS)
+  const [hourlyRateInput, setHourlyRateInput] = useState(() => String(DEFAULT_SETTINGS.hourlyRate))
   const [invoiceProfile, setInvoiceProfile] = useState<InvoiceProfile>(DEFAULT_INVOICE_PROFILE)
   const [invoiceDraft, setInvoiceDraft] = useState<InvoiceProfile>(DEFAULT_INVOICE_PROFILE)
   const [invoiceForm, setInvoiceForm] = useState({
@@ -198,6 +206,10 @@ function App() {
     durationMinutes: 0,
     total: 0,
   })
+  const [invoiceNumberInput, setInvoiceNumberInput] = useState('1')
+  const [invoiceRateInput, setInvoiceRateInput] = useState(() => String(INITIAL_HOURLY_RATE))
+  const [invoiceTotalInput, setInvoiceTotalInput] = useState('0')
+  const [nextInvoiceNumberInput, setNextInvoiceNumberInput] = useState('1')
   const importInputRef = useRef<HTMLInputElement | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<'home' | 'reports'>('home')
@@ -260,6 +272,14 @@ function App() {
       console.error('Failed to persist menu preference', error)
     }
   }, [isMenuOpen])
+
+  useEffect(() => {
+    setHourlyRateInput(String(settingsDraft.hourlyRate))
+  }, [settingsDraft.hourlyRate])
+
+  useEffect(() => {
+    setNextInvoiceNumberInput(String(invoiceDraft.nextInvoiceNumber))
+  }, [invoiceDraft.nextInvoiceNumber])
 
   const todayLabel = useMemo(() => {
     const now = new Date()
@@ -644,6 +664,9 @@ function App() {
       durationMinutes: reportTotals.durationMinutes,
       total: reportTotals.pay,
     })
+    setInvoiceNumberInput(String(invoiceProfile.nextInvoiceNumber))
+    setInvoiceRateInput(String(settings.hourlyRate))
+    setInvoiceTotalInput(String(reportTotals.pay))
     setIsInvoiceEditing(false)
     setShowEmailPrompt(false)
     setIsInvoiceScreenOpen(true)
@@ -785,13 +808,26 @@ function App() {
               <div className="field">
                 <span className="label">Invoice number</span>
                 <input
-                  type="number"
-                  min={1}
-                  value={invoiceForm.invoiceNumber}
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*"
+                  value={invoiceNumberInput}
                   disabled={!isInvoiceEditing}
-                  onChange={(e) =>
-                    setInvoiceForm((prev) => ({ ...prev, invoiceNumber: Math.max(1, Number(e.target.value) || 1) }))
-                  }
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    setInvoiceNumberInput(raw)
+                    const parsed = parseDecimal(raw)
+                    if (parsed !== null) {
+                      setInvoiceForm((prev) => ({ ...prev, invoiceNumber: Math.max(1, Math.round(parsed)) }))
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const parsed = parseDecimal(e.target.value)
+                    const safe = Math.max(1, parsed ?? invoiceForm.invoiceNumber ?? 1)
+                    const rounded = Math.round(safe)
+                    setInvoiceNumberInput(String(rounded))
+                    setInvoiceForm((prev) => ({ ...prev, invoiceNumber: rounded }))
+                  }}
                 />
               </div>
 
@@ -807,13 +843,25 @@ function App() {
                 <label className="field">
                   <span className="label">Hourly rate</span>
                   <input
-                    type="number"
-                    min={0}
-                    value={invoiceForm.rate}
+                    type="text"
+                    inputMode="decimal"
+                    pattern="[0-9]*[.,]?[0-9]*"
+                    value={invoiceRateInput}
                     disabled={!isInvoiceEditing}
-                    onChange={(e) =>
-                      setInvoiceForm((prev) => ({ ...prev, rate: Number(e.target.value) || 0 }))
-                    }
+                    onChange={(e) => {
+                      const raw = e.target.value
+                      setInvoiceRateInput(raw)
+                      const parsed = parseDecimal(raw)
+                      if (parsed !== null) {
+                        setInvoiceForm((prev) => ({ ...prev, rate: Math.max(0, parsed) }))
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const parsed = parseDecimal(e.target.value)
+                      const safe = Math.max(0, parsed ?? invoiceForm.rate ?? 0)
+                      setInvoiceRateInput(String(safe))
+                      setInvoiceForm((prev) => ({ ...prev, rate: safe }))
+                    }}
                   />
                 </label>
               </div>
@@ -821,13 +869,25 @@ function App() {
               <label className="field">
                 <span className="label">Total amount</span>
                 <input
-                  type="number"
-                  min={0}
-                  value={invoiceForm.total}
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*[.,]?[0-9]*"
+                  value={invoiceTotalInput}
                   disabled={!isInvoiceEditing}
-                  onChange={(e) =>
-                    setInvoiceForm((prev) => ({ ...prev, total: Number(e.target.value) || 0 }))
-                  }
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    setInvoiceTotalInput(raw)
+                    const parsed = parseDecimal(raw)
+                    if (parsed !== null) {
+                      setInvoiceForm((prev) => ({ ...prev, total: Math.max(0, parsed) }))
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const parsed = parseDecimal(e.target.value)
+                    const safe = Math.max(0, parsed ?? invoiceForm.total ?? 0)
+                    setInvoiceTotalInput(String(safe))
+                    setInvoiceForm((prev) => ({ ...prev, total: safe }))
+                  }}
                 />
               </label>
             </div>
@@ -1138,12 +1198,18 @@ function App() {
               <label className="field">
                 <span className="label">Hourly rate (AUD)</span>
                 <input
-                  type="number"
-                  min={0}
-                  value={settingsDraft.hourlyRate}
-                  onChange={(e) =>
-                    setSettingsDraft((prev) => ({ ...prev, hourlyRate: Number(e.target.value) || 0 }))
-                  }
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*[.,]?[0-9]*"
+                  value={hourlyRateInput}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    setHourlyRateInput(raw)
+                    const parsed = parseDecimal(raw)
+                    if (parsed !== null) {
+                      setSettingsDraft((prev) => ({ ...prev, hourlyRate: Math.max(0, parsed) }))
+                    }
+                  }}
                 />
               </label>
 
@@ -1254,15 +1320,27 @@ function App() {
               <label className="field">
                 <span className="label">Next invoice number</span>
                 <input
-                  type="number"
-                  min={1}
-                  value={invoiceDraft.nextInvoiceNumber}
-                  onChange={(e) =>
-                    setInvoiceDraft((prev) => ({
-                      ...prev,
-                      nextInvoiceNumber: Math.max(1, Number(e.target.value) || 1),
-                    }))
-                  }
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*"
+                  value={nextInvoiceNumberInput}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    setNextInvoiceNumberInput(raw)
+                    const parsed = parseDecimal(raw)
+                    if (parsed !== null) {
+                      setInvoiceDraft((prev) => ({
+                        ...prev,
+                        nextInvoiceNumber: Math.max(1, Math.round(parsed)),
+                      }))
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const parsed = parseDecimal(e.target.value)
+                    const safe = Math.max(1, parsed ?? invoiceDraft.nextInvoiceNumber ?? 1)
+                    setNextInvoiceNumberInput(String(Math.round(safe)))
+                    setInvoiceDraft((prev) => ({ ...prev, nextInvoiceNumber: Math.round(safe) }))
+                  }}
                 />
               </label>
 
