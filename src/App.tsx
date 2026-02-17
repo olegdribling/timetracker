@@ -9,6 +9,7 @@ import { saveAs } from 'file-saver'
 
 const INITIAL_HOURLY_RATE = 25
 const THEME_STORAGE_KEY = 'worktracker:theme'
+const THEME_MODE_STORAGE_KEY = 'worktracker:theme-mode'
 const MENU_STORAGE_KEY = 'worktracker:menu-open'
 
 const emptyForm = (): ShiftForm => {
@@ -80,6 +81,16 @@ const parseDecimal = (raw: string) => {
 type Option = {
   value: string
   label: string
+}
+
+type ThemeMode = 'system' | 'light' | 'dark'
+type Theme = 'light' | 'dark'
+
+const getSystemTheme = (): Theme => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return 'light'
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
 type SettingsRowImport = Settings & { key?: string; updatedAt?: string }
@@ -169,15 +180,24 @@ const WheelPicker = ({ options, value, onChange, itemHeight = 44 }: WheelPickerP
 }
 
 function App() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     try {
-      const stored = localStorage.getItem(THEME_STORAGE_KEY)
-      if (stored === 'light' || stored === 'dark') return stored
+      const storedMode = localStorage.getItem(THEME_MODE_STORAGE_KEY)
+      if (storedMode === 'system' || storedMode === 'light' || storedMode === 'dark') {
+        return storedMode
+      }
+
+      // Keep compatibility with older saved theme value.
+      const storedLegacy = localStorage.getItem(THEME_STORAGE_KEY)
+      if (storedLegacy === 'light' || storedLegacy === 'dark') {
+        return storedLegacy
+      }
     } catch (error) {
       console.error('Failed to read stored theme', error)
     }
-    return 'light'
+    return 'system'
   })
+  const [systemTheme, setSystemTheme] = useState<Theme>(getSystemTheme)
   const [shifts, setShifts] = useState<Shift[]>([])
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(() => {
@@ -215,14 +235,32 @@ function App() {
   const [activeView, setActiveView] = useState<'home' | 'reports'>('home')
   const [periodOffset, setPeriodOffset] = useState(0)
 
+  const appliedTheme: Theme = themeMode === 'system' ? systemTheme : themeMode
+
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
+    document.documentElement.dataset.theme = appliedTheme
+  }, [appliedTheme])
+
+  useEffect(() => {
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme)
+      localStorage.setItem(THEME_MODE_STORAGE_KEY, themeMode)
+      localStorage.removeItem(THEME_STORAGE_KEY)
     } catch (error) {
       console.error('Failed to persist theme', error)
     }
-  }, [theme])
+  }, [themeMode])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const updateTheme = (event: MediaQueryListEvent) => {
+      setSystemTheme(event.matches ? 'dark' : 'light')
+    }
+
+    setSystemTheme(media.matches ? 'dark' : 'light')
+    media.addEventListener('change', updateTheme)
+    return () => media.removeEventListener('change', updateTheme)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -746,10 +784,16 @@ function App() {
         <div className="actions">
           <button
             className="icon-button"
-            aria-label="Переключить тему"
-            onClick={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}
+            aria-label="Переключить тему (System/Light/Dark)"
+            onClick={() =>
+              setThemeMode((prev) => (prev === 'system' ? 'light' : prev === 'light' ? 'dark' : 'system'))
+            }
           >
-            {theme === 'light' ? 'Dark' : 'Light'}
+            {themeMode === 'system'
+              ? `System (${appliedTheme === 'dark' ? 'Dark' : 'Light'})`
+              : themeMode === 'light'
+                ? 'Light'
+                : 'Dark'}
           </button>
           <button
             className="burger"
