@@ -682,7 +682,7 @@ function App() {
     if (!reportRange) return
     const lineItem = invoiceProfile.speciality || 'Service'
     const invoiceNumber = invoiceForm.invoiceNumber
-    const gst = invoiceProfile.chargeGst ? invoiceForm.total * 0.1 : 0
+    const gst = invoiceProfile.chargeGst ? invoiceForm.total / 11 : 0
     const netSubtotal = invoiceForm.total - gst
     const balanceDue = invoiceForm.total
     try {
