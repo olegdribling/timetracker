@@ -82,12 +82,16 @@
 }
 
 .menu-sheet {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 45;
   border: 1px solid var(--border);
   background: var(--surface);
   border-radius: 16px;
   padding: 12px;
   box-shadow: var(--shadow-soft);
-  margin-bottom: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
