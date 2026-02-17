@@ -804,34 +804,33 @@ function App() {
             <span />
           </button>
         </div>
-      </header>
-
-      {isMenuOpen && (
-        <div className="menu-sheet">
-          <div className="menu-item">
-            <div className="menu-title">User</div>
-            <div className="menu-sub">Outdoorblinds Australia</div>
+        {isMenuOpen && (
+          <div className="menu-sheet">
+            <div className="menu-item">
+              <div className="menu-title">User</div>
+              <div className="menu-sub">Outdoorblinds Australia</div>
+            </div>
+            <button className="menu-item action" onClick={goHome}>
+              Dashboard
+            </button>
+            <button className="menu-item action" onClick={openReports}>
+              Reports
+            </button>
+            <button className="menu-item action" onClick={openInvoiceModal}>
+              Invoice details
+            </button>
+            <button className="menu-item action" onClick={exportData}>
+              Export data
+            </button>
+            <button className="menu-item action" onClick={triggerImport}>
+              Import data
+            </button>
+            <button className="menu-item action" onClick={openSettings}>
+              Settings
+            </button>
           </div>
-          <button className="menu-item action" onClick={goHome}>
-            Dashboard
-          </button>
-          <button className="menu-item action" onClick={openReports}>
-            Reports
-          </button>
-          <button className="menu-item action" onClick={openInvoiceModal}>
-            Invoice details
-          </button>
-          <button className="menu-item action" onClick={exportData}>
-            Export data
-          </button>
-          <button className="menu-item action" onClick={triggerImport}>
-            Import data
-          </button>
-          <button className="menu-item action" onClick={openSettings}>
-            Settings
-          </button>
-        </div>
-      )}
+        )}
+      </header>
 
       {isInvoiceScreenOpen && (
         <div className="modal-backdrop" onClick={closeInvoiceScreen}>
