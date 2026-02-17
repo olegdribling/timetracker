@@ -12,6 +12,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  padding: 10px 0;
+  background: var(--app-bg);
   margin-bottom: 16px;
 }
 
