@@ -113,6 +113,9 @@ const WEEKDAY_LABELS: Record<Settings['weekStart'], string> = {
   saturday: 'Sat',
 }
 
+const CALENDAR_WEEK_START: Settings['weekStart'] = 'monday'
+const CALENDAR_WEEK_START_INDEX = WEEKDAYS.indexOf(CALENDAR_WEEK_START)
+
 const pad2 = (value: number) => String(value).padStart(2, '0')
 
 const toLocalDateKey = (date: Date) =>
@@ -497,9 +500,8 @@ function App() {
   const canNavigateReports = settings.period !== 'custom'
 
   const calendarWeekLabels = useMemo(() => {
-    const startIndex = WEEKDAYS.indexOf(settings.weekStart)
-    return Array.from({ length: 7 }, (_, idx) => WEEKDAY_LABELS[WEEKDAYS[(startIndex + idx) % 7]])
-  }, [settings.weekStart])
+    return Array.from({ length: 7 }, (_, idx) => WEEKDAY_LABELS[WEEKDAYS[(CALENDAR_WEEK_START_INDEX + idx) % 7]])
+  }, [])
 
   const calendarMonthLabel = useMemo(() => {
     const { year, month } = parseMonthKey(calendarMonth)
@@ -513,8 +515,7 @@ function App() {
     const { year, month } = parseMonthKey(calendarMonth)
     const firstDay = new Date(year, month - 1, 1).getDay()
     const daysInMonth = new Date(year, month, 0).getDate()
-    const weekStartIndex = WEEKDAYS.indexOf(settings.weekStart)
-    const leadingBlanks = (firstDay - weekStartIndex + 7) % 7
+    const leadingBlanks = (firstDay - CALENDAR_WEEK_START_INDEX + 7) % 7
     const totalCells = Math.ceil((leadingBlanks + daysInMonth) / 7) * 7
     const monthPrefix = `${year}-${pad2(month)}`
     const cells: Array<{ date: string | null; day: number | null }> = []
@@ -532,7 +533,7 @@ function App() {
     }
 
     return cells
-  }, [calendarMonth, settings.weekStart])
+  }, [calendarMonth])
 
   const shiftsByDate = useMemo(() => {
     const map = new Map<string, Shift[]>()
