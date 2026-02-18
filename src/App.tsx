@@ -93,6 +93,47 @@ const getSystemTheme = (): Theme => {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
+const WEEKDAYS: Settings['weekStart'][] = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+]
+
+const WEEKDAY_LABELS: Record<Settings['weekStart'], string> = {
+  sunday: 'Sun',
+  monday: 'Mon',
+  tuesday: 'Tue',
+  wednesday: 'Wed',
+  thursday: 'Thu',
+  friday: 'Fri',
+  saturday: 'Sat',
+}
+
+const pad2 = (value: number) => String(value).padStart(2, '0')
+
+const toLocalDateKey = (date: Date) =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+
+const toMonthKey = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`
+
+const parseMonthKey = (value: string) => {
+  const [yearRaw, monthRaw] = value.split('-')
+  return {
+    year: Number(yearRaw),
+    month: Number(monthRaw),
+  }
+}
+
+const shiftMonthKey = (value: string, offset: number) => {
+  const { year, month } = parseMonthKey(value)
+  const shifted = new Date(year, month - 1 + offset, 1)
+  return toMonthKey(shifted)
+}
+
 type SettingsRowImport = Settings & { key?: string; updatedAt?: string }
 type InvoiceRowImport = InvoiceProfile & { key?: string; updatedAt?: string }
 type BackupPayload = {
@@ -232,8 +273,10 @@ function App() {
   const [nextInvoiceNumberInput, setNextInvoiceNumberInput] = useState('1')
   const importInputRef = useRef<HTMLInputElement | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [activeView, setActiveView] = useState<'home' | 'reports'>('home')
+  const [activeView, setActiveView] = useState<'home' | 'reports' | 'calendar'>('home')
   const [periodOffset, setPeriodOffset] = useState(0)
+  const [calendarMonth, setCalendarMonth] = useState(() => toMonthKey(new Date()))
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState(() => toLocalDateKey(new Date()))
 
   const appliedTheme: Theme = themeMode === 'system' ? systemTheme : themeMode
 
@@ -453,14 +496,81 @@ function App() {
 
   const canNavigateReports = settings.period !== 'custom'
 
+  const calendarWeekLabels = useMemo(() => {
+    const startIndex = WEEKDAYS.indexOf(settings.weekStart)
+    return Array.from({ length: 7 }, (_, idx) => WEEKDAY_LABELS[WEEKDAYS[(startIndex + idx) % 7]])
+  }, [settings.weekStart])
+
+  const calendarMonthLabel = useMemo(() => {
+    const { year, month } = parseMonthKey(calendarMonth)
+    return new Intl.DateTimeFormat('en-AU', {
+      month: 'long',
+      year: 'numeric',
+    }).format(new Date(year, month - 1, 1))
+  }, [calendarMonth])
+
+  const calendarCells = useMemo(() => {
+    const { year, month } = parseMonthKey(calendarMonth)
+    const firstDay = new Date(year, month - 1, 1).getDay()
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const weekStartIndex = WEEKDAYS.indexOf(settings.weekStart)
+    const leadingBlanks = (firstDay - weekStartIndex + 7) % 7
+    const totalCells = Math.ceil((leadingBlanks + daysInMonth) / 7) * 7
+    const monthPrefix = `${year}-${pad2(month)}`
+    const cells: Array<{ date: string | null; day: number | null }> = []
+
+    for (let idx = 0; idx < totalCells; idx += 1) {
+      const day = idx - leadingBlanks + 1
+      if (day < 1 || day > daysInMonth) {
+        cells.push({ date: null, day: null })
+      } else {
+        cells.push({
+          date: `${monthPrefix}-${pad2(day)}`,
+          day,
+        })
+      }
+    }
+
+    return cells
+  }, [calendarMonth, settings.weekStart])
+
+  const shiftsByDate = useMemo(() => {
+    const map = new Map<string, Shift[]>()
+    shifts.forEach((shift) => {
+      const current = map.get(shift.date) ?? []
+      current.push(shift)
+      map.set(shift.date, current)
+    })
+    map.forEach((items) => {
+      items.sort((a, b) => b.start.localeCompare(a.start))
+    })
+    return map
+  }, [shifts])
+
+  const selectedDayShifts = useMemo(
+    () => shiftsByDate.get(calendarSelectedDate) ?? [],
+    [shiftsByDate, calendarSelectedDate],
+  )
+
+  const todayIso = useMemo(() => toLocalDateKey(new Date()), [])
+
+  const closeOverlays = () => {
+    setIsMenuOpen(false)
+    setIsSettingsOpen(false)
+    setIsInvoiceModalOpen(false)
+    setIsInvoiceScreenOpen(false)
+    setShowEmailPrompt(false)
+  }
+
   const openCreate = () => {
+    closeOverlays()
     setEditingId(null)
     setForm(emptyForm())
     setIsAddOpen(true)
-    setIsMenuOpen(false)
   }
 
   const openEdit = (shift: Shift) => {
+    closeOverlays()
     setEditingId(shift.id)
     setForm({
       date: shift.date,
@@ -470,7 +580,6 @@ function App() {
       comment: shift.comment ?? '',
     })
     setIsAddOpen(true)
-    setIsMenuOpen(false)
   }
 
   const closeModal = () => {
@@ -479,15 +588,31 @@ function App() {
   }
 
   const openSettings = () => {
+    closeOverlays()
     setSettingsDraft(settings)
     setIsSettingsOpen(true)
-    setIsMenuOpen(false)
   }
 
   const openReports = () => {
+    closeOverlays()
     setActiveView('reports')
-    setIsMenuOpen(false)
     setPeriodOffset(0)
+  }
+
+  const openCalendar = (targetDate?: string) => {
+    closeOverlays()
+    const nextDate = targetDate ?? calendarSelectedDate ?? toLocalDateKey(new Date())
+    setCalendarSelectedDate(nextDate)
+    setCalendarMonth(nextDate.slice(0, 7))
+    setActiveView('calendar')
+  }
+
+  const goPrevCalendarMonth = () => {
+    setCalendarMonth((prev) => shiftMonthKey(prev, -1))
+  }
+
+  const goNextCalendarMonth = () => {
+    setCalendarMonth((prev) => shiftMonthKey(prev, 1))
   }
 
   const exportData = async () => {
@@ -569,8 +694,8 @@ function App() {
   }
 
   const goHome = () => {
+    closeOverlays()
     setActiveView('home')
-    setIsMenuOpen(false)
   }
 
   const goPrevPeriod = () => {
@@ -666,9 +791,9 @@ function App() {
   }
 
   const openInvoiceModal = () => {
+    closeOverlays()
     setInvoiceDraft(invoiceProfile)
     setIsInvoiceModalOpen(true)
-    setIsMenuOpen(false)
   }
 
   const closeInvoiceModal = () => {
@@ -721,6 +846,7 @@ function App() {
     const lineItem = invoiceProfile.speciality || 'Service'
     const invoiceNumber = invoiceForm.invoiceNumber
     const gst = invoiceProfile.chargeGst ? invoiceForm.total / 11 : 0
+    const unitPrice = invoiceProfile.chargeGst ? invoiceForm.rate / 1.1 : invoiceForm.rate
     const netSubtotal = invoiceForm.total - gst
     const balanceDue = invoiceForm.total
     try {
@@ -729,7 +855,7 @@ function App() {
         period: reportRange,
         invoiceNumber,
         itemLabel: lineItem,
-        unitPrice: invoiceForm.rate,
+        unitPrice,
         quantityMinutes: invoiceForm.durationMinutes,
         subtotal: netSubtotal,
         gst,
@@ -777,10 +903,15 @@ function App() {
         onChange={handleImportFile}
       />
       <header className="top-bar">
-        <div className="date-block">
+        <button
+          type="button"
+          className="date-block date-trigger"
+          aria-label="Open calendar"
+          onClick={() => openCalendar(todayIso)}
+        >
           <div className="today-label">Today</div>
           <div className="today-value">{todayLabel}</div>
-        </div>
+        </button>
         <div className="actions">
           <button
             className="icon-button"
@@ -815,6 +946,9 @@ function App() {
             </button>
             <button className="menu-item action" onClick={openReports}>
               Reports
+            </button>
+            <button className="menu-item action" onClick={() => openCalendar()}>
+              Calendar
             </button>
             <button className="menu-item action" onClick={openInvoiceModal}>
               Invoice details
@@ -1025,7 +1159,7 @@ function App() {
               })}
             </section>
           </>
-        ) : (
+        ) : activeView === 'reports' ? (
           <section className="reports-card">
             <div className="reports-header">
               <button className="nav-btn" onClick={goPrevPeriod} disabled={!canNavigateReports}>
@@ -1072,6 +1206,104 @@ function App() {
               </button>
             </div>
           </section>
+        ) : (
+          <>
+            <section className="calendar-card">
+              <div className="reports-header">
+                <button className="nav-btn" onClick={goPrevCalendarMonth}>
+                  ‹
+                </button>
+                <div className="reports-range">{calendarMonthLabel}</div>
+                <button className="nav-btn" onClick={goNextCalendarMonth}>
+                  ›
+                </button>
+              </div>
+
+              <div className="calendar-weekdays">
+                {calendarWeekLabels.map((label) => (
+                  <div key={label} className="calendar-weekday">
+                    {label}
+                  </div>
+                ))}
+              </div>
+
+              <div className="calendar-grid">
+                {calendarCells.map((cell, idx) => {
+                  if (!cell.date || !cell.day) {
+                    return <div key={`blank-${idx}`} className="calendar-day-empty" />
+                  }
+
+                  const dateKey = cell.date
+                  const hasShifts = shiftsByDate.has(dateKey)
+                  const isSelected = dateKey === calendarSelectedDate
+                  const isToday = dateKey === todayIso
+
+                  return (
+                    <button
+                      key={dateKey}
+                      type="button"
+                      className={`calendar-day${isSelected ? ' is-selected' : ''}${isToday ? ' is-today' : ''}${hasShifts ? ' has-shifts' : ''}`}
+                      onClick={() => setCalendarSelectedDate(dateKey)}
+                    >
+                      <span className="calendar-day-number">{cell.day}</span>
+                      {hasShifts && <span className="calendar-day-dot" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+
+            <section className="shift-list">
+              <div className="calendar-selected-label">Shifts on {formatDate(calendarSelectedDate)}</div>
+              {selectedDayShifts.length > 0 ? (
+                selectedDayShifts.map((shift) => {
+                  const workedMinutes = minutesBetween(shift.start, shift.end) - shift.lunchMinutes
+                  const hours = Math.max(workedMinutes, 0) / 60
+                  const salary = hours * shift.hourlyRate
+                  return (
+                    <article key={shift.id} className="shift-card">
+                      <div className="shift-card__header">
+                        <div className="shift-date">{formatDate(shift.date)}</div>
+                        <div className="shift-actions">
+                          <button className="ghost-button danger" onClick={() => handleDelete(shift.id)}>
+                            Delete
+                          </button>
+                          <button className="ghost-button" onClick={() => openEdit(shift)}>
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                      <div className="shift-grid">
+                        <div>
+                          <div className="label">Start</div>
+                          <div className="value">{shift.start}</div>
+                        </div>
+                        <div>
+                          <div className="label">End</div>
+                          <div className="value">{shift.end}</div>
+                        </div>
+                        <div>
+                          <div className="label">Lunch</div>
+                          <div className="value">{shift.lunchMinutes} min</div>
+                        </div>
+                        <div>
+                          <div className="label">Duration</div>
+                          <div className="value">{formatDuration(workedMinutes)}</div>
+                        </div>
+                        <div>
+                          <div className="label">Pay</div>
+                          <div className="value accent">${money(salary)} AUD</div>
+                        </div>
+                      </div>
+                      {shift.comment && <div className="comment">“{shift.comment}”</div>}
+                    </article>
+                  )
+                })
+              ) : (
+                <div className="report-row empty">No shifts for this day</div>
+              )}
+            </section>
+          </>
         )}
       </main>
 
@@ -1169,7 +1401,7 @@ function App() {
 
       {isSettingsOpen && (
         <div className="modal-backdrop" onClick={closeSettings}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-pinned" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <button className="ghost-button" onClick={closeSettings}>
                 Close
@@ -1288,7 +1520,7 @@ function App() {
 
       {isInvoiceModalOpen && (
         <div className="modal-backdrop" onClick={closeInvoiceModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-pinned" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <button className="ghost-button" onClick={closeInvoiceModal}>
                 Close
