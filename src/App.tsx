@@ -608,6 +608,14 @@ function App() {
     setActiveView('calendar')
   }
 
+  const toggleCalendarFromHeader = () => {
+    if (activeView === 'calendar') {
+      goHome()
+      return
+    }
+    openCalendar(todayIso)
+  }
+
   const goPrevCalendarMonth = () => {
     setCalendarMonth((prev) => shiftMonthKey(prev, -1))
   }
@@ -908,7 +916,7 @@ function App() {
           type="button"
           className="date-block date-trigger"
           aria-label="Open calendar"
-          onClick={() => openCalendar(todayIso)}
+          onClick={toggleCalendarFromHeader}
         >
           <div className="today-label">Today</div>
           <div className="today-value">{todayLabel}</div>
