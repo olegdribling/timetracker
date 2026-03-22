@@ -138,7 +138,7 @@ export async function generateInvoicePdf(params: {
     {
       item: itemLabel || 'Service',
       unit: `$${money(unitPrice)}`,
-      qty: formatDuration(quantityMinutes),
+      qty: '',
       subtotal: `$${money(subtotal)}`,
     },
   ]
